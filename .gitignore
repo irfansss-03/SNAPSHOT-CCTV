@@ -1,0 +1,25 @@
+# SQLite Databases
+*.db
+*.db-wal
+*.db-shm
+
+# Snapshot folders & output test folders
+snapshots_hd_lokal/
+snapshots_nvr_4cctv/
+test_output/
+test2_output/
+snapshots_*/
+
+# Local test scripts & mock media
+test.py
+test2.py
+snapshot_compress.py
+cctv.kapal.mp4
+test_rtsp.jpg
+
+# Python cache & temp
+__pycache__/
+*.pyc
+*.log
+/tmp/
+.DS_Store

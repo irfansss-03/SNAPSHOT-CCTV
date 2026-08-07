@@ -1,0 +1,40 @@
+{
+  "nvr": {
+    "ip": "192.168.7.184",
+    "port": 554,
+    "user": "admin",
+    "pass": "ptspts2023",
+    "brand": "hikvision"
+  },
+  "server": {
+    "base_url": "https://apitest.semar.biz.id/api/v1"
+  },
+  "agent": {
+    "snapshot_interval_sec": 60,
+    "connection_check_interval_sec": 60,
+    "mock_mode": false,
+    "mock_video": "cctv.kapal.mp4"
+  },
+  "cameras": [
+    {
+      "channel": 1,
+      "name": "cam1",
+      "token": "9ycS912ABqUAkCcdjC9NGCSXqMk6GB8q"
+    },
+    {
+      "channel": 10,
+      "name": "cam10",
+      "token": "ZmmCq5G9RnvMRbopdTasZUaQ1dV5SR8c"
+    },
+    {
+      "channel": 4,
+      "name": "cam4",
+      "token": "U6lliewYaiAUyGhRRQRPekWL2T4UoJ95"
+    },
+    {
+      "channel": 8,
+      "name": "cam8",
+      "token": "k8whm3405IHYSe7qnCRyW0yM7OqlppXJ"
+    }
+  ]
+}
