@@ -274,20 +274,47 @@ Seluruh sistem dikendalikan secara eksternal melalui file `config.json`. Anda ti
 
 ---
 
-## 7. Panduan Instalasi & Depresiasi Dependencies
+## 7. Panduan Instalasi & Step-by-Step Deployment Tutorial
 
-Sistem membutuhkan beberapa *library* sistem dan Python:
+Berikut adalah panduan lengkap dari awal (*fresh install*) untuk memasang agen di Mini PC / Server Kapal baru (Debian 12 / Ubuntu / Raspberry Pi OS):
 
-### 1. Install Sistem Package (Linux / Raspberry Pi OS):
+### 📦 Step 1: Install Package System (OS Level)
+Jalankan perintah ini di terminal untuk menginstal seluruh dependency biner yang dibutuhkan:
 ```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg webp
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git python3 python3-pip python3-opencv ffmpeg webp sqlite3
 ```
 
-### 2. Install Python Dependencies:
+### 📥 Step 2: Clone Repository Proyek dari GitHub
+Unduh source code proyek terbaru dari repository GitHub:
 ```bash
-pip install opencv-python-headless numpy requests Pillow --break-system-packages
+git clone https://github.com/irfansss-03/SNAPSHOT-CCTV.git
+cd SNAPSHOT-CCTV
 ```
+
+### 🐍 Step 3: Install Dependencies Library Python
+Pasang modul pendukung Python yang diperlukan:
+```bash
+pip3 install requests numpy --break-system-packages
+```
+
+### ⚙️ Step 4: Konfigurasi Parameter `config.json`
+Buka file `config.json` dan sesuaikan IP NVR, kredensial login NVR, server URL, serta token masing-masing kamera:
+```bash
+nano config.json
+```
+- Sesuaikan `nvr.ip` (contoh: `"192.168.7.184"`).
+- Sesuaikan `nvr.user` dan `nvr.pass`.
+- Sesuaikan `server.base_url` (contoh: `"https://apitest.semar.biz.id/api/v1"`).
+- Sesuaikan `channel` dan `token` 32-karakter untuk setiap kamera CCTV.
+
+### 🧪 Step 5: Uji Coba Eksekusi Manual
+Jalankan skrip secara manual terlebih dahulu untuk memastikan koneksi NVR RTSP dan upload API berjalan lancar:
+```bash
+python3 snapshotcompress.py
+```
+- Pastikan muncul log: `[Adaptive cwebp] Ch1: Lvl 0 → 8.60 KB ✅ < 10KB!`
+- Pastikan muncul log: `[⚡ WebPUploader] ✅ Upload Berhasil ke Server Darat (HTTP 201)!`
 
 ---
 
