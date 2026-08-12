@@ -39,24 +39,39 @@ import numpy as np
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-LOG_FILE = os.path.join(BASE_DIR, "agent.log")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
 
-# Class Logger untuk menulis log bersamaan ke layar (Terminal) dan file (agent.log)
-class DualLogger:
-    def __init__(self, filepath):
+# Class Logger untuk menulis log berganti file otomatis per hari (logs/agent_YYYY-MM-DD.log)
+class DailyRotatedLogger:
+    def __init__(self, log_dir):
         self.terminal = sys.stdout
-        self.logfile = open(filepath, "a", encoding="utf-8")
+        self.log_dir = log_dir
+        os.makedirs(self.log_dir, exist_ok=True)
+        self.current_date = None
+        self.logfile = None
+
+    def _get_logfile(self):
+        now_date = datetime.now().strftime("%Y-%m-%d")
+        if now_date != self.current_date or self.logfile is None or self.logfile.closed:
+            if self.logfile and not self.logfile.closed:
+                self.logfile.close()
+            self.current_date = now_date
+            filepath = os.path.join(self.log_dir, f"agent_{self.current_date}.log")
+            self.logfile = open(filepath, "a", encoding="utf-8")
+        return self.logfile
 
     def write(self, message):
         self.terminal.write(message)
-        self.logfile.write(message)
-        self.logfile.flush()
+        f = self._get_logfile()
+        f.write(message)
+        f.flush()
 
     def flush(self):
         self.terminal.flush()
-        self.logfile.flush()
+        if self.logfile and not self.logfile.closed:
+            self.logfile.flush()
 
-sys.stdout = DualLogger(LOG_FILE)
+sys.stdout = DailyRotatedLogger(LOG_DIR)
 sys.stderr = sys.stdout
 
 def load_config() -> dict:
