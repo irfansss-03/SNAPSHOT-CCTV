@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""
-=============================================================================
-DYNAMIC NVR RTSP SNAPSHOT AGENT (EXTERNAL JSON CONFIG SUPPORT)
-=============================================================================
-Sistem pemantauan NVR CCTV fleksibel (bisa 4, 6, 12, atau 24 kamera):
-
-1. CONFIG EXTERNAL (`config.json`):
-   - Tanpa perlu merubah kode Python (.py), pengguna cukup mengubah file text `config.json`.
-   - Bebas menentukan jumlah kamera (misal 6 kamera), interval detik snapshot, IP NVR, dan token server.
-
-2. PER-CAMERA TOKEN ARCHITECTURE:
-   - Setiap kamera memiliki `cameraToken` unik sendiri yang di-generate dari server.
-   - Endpoint upload dinamis: POST /cctv/worker/cameras/{cameraToken}/snapshots
-
-3. DUAL-FOLDER STORAGE:
-   - Folder HD Lokal (`snapshots_hd_lokal/`): Foto HD asli (.jpg) disimpan lokal untuk investigasi.
-   - Folder WebP Server (`snapshots_nvr_4cctv/`): Foto WebP ringkas (360x270 statik, < 2.0 KB) untuk transmisi server.
-
-4. SERVER CONNECTION FLAG (ANTI-SPAM & CPU SAVER):
-   - Jika Server Offline: Thread Uploader TIDUR TOTAL (0% SPAM HTTP POST).
-   - ConnChecker memantau server per 5 menit.
-   - Snapshot & Antrean SQLite (`queue.db`) TETAP BERJALAN LOKAL.
-=============================================================================
-"""
+# Maritime NVR CCTV Snapshot Agent (<10KB WebP + SQLite WAL Queue)
 
 import os
 import sys
