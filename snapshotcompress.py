@@ -39,6 +39,25 @@ import numpy as np
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+LOG_FILE = os.path.join(BASE_DIR, "agent.log")
+
+# Class Logger untuk menulis log bersamaan ke layar (Terminal) dan file (agent.log)
+class DualLogger:
+    def __init__(self, filepath):
+        self.terminal = sys.stdout
+        self.logfile = open(filepath, "a", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.logfile.write(message)
+        self.logfile.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.logfile.flush()
+
+sys.stdout = DualLogger(LOG_FILE)
+sys.stderr = sys.stdout
 
 def load_config() -> dict:
     """Membaca file konfigurasi external config.json."""
