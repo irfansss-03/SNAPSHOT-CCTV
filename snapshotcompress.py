@@ -400,12 +400,6 @@ def upload_worker():
             conn = sqlite3.connect(DB_PATH)
             c = conn.cursor()
 
-            # Auto-Pruning jika antrean lokal menumpuk > 5000 file
-            c.execute("SELECT count(*) FROM queue")
-            if c.fetchone()[0] > 5000:
-                c.execute("DELETE FROM queue WHERE id IN (SELECT id FROM queue ORDER BY timestamp ASC LIMIT 500)")
-                conn.commit()
-
             # Ambil 1 snapshot terlama dari queue.db
             c.execute("SELECT id, camera_token, webp_path, payload FROM queue ORDER BY timestamp ASC LIMIT 1")
             item = c.fetchone()
