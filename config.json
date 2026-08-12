@@ -12,6 +12,7 @@
   "agent": {
     "snapshot_interval_sec": 60,
     "connection_check_interval_sec": 60,
+    "hd_retention_days": 30,
     "mock_mode": false,
     "mock_video": "cctv.kapal.mp4"
   },

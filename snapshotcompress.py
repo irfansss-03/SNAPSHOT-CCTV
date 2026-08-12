@@ -105,6 +105,7 @@ SERVER_BASE_URL = CFG["server"]["base_url"]
 
 SNAPSHOT_INTERVAL_SEC     = CFG["agent"].get("snapshot_interval_sec", 60)
 CONNECTION_CHECK_INTERVAL = CFG["agent"].get("connection_check_interval_sec", 300)
+HD_RETENTION_DAYS         = CFG["agent"].get("hd_retention_days", 30)
 MOCK_MODE                 = CFG["agent"].get("mock_mode", False)
 MOCK_VIDEO                = CFG["agent"].get("mock_video", "cctv.kapal.mp4")
 
@@ -343,8 +344,43 @@ def take_nvr_snapshot(cam_info: dict) -> dict:
         "timestamp": now_str
     }
 
+def purge_old_hd_snapshots():
+    """Menghapus otomatis subfolder HD lokal dan file log yang melebihi retensi hari (default 30 hari)."""
+    try:
+        now = datetime.now()
+        # 1. Purge Subfolder HD Lokal (snapshots_hd_lokal/YYYY-MM-DD)
+        if os.path.exists(OUTPUT_HD_DIR):
+            for folder_name in os.listdir(OUTPUT_HD_DIR):
+                folder_path = os.path.join(OUTPUT_HD_DIR, folder_name)
+                if os.path.isdir(folder_path):
+                    try:
+                        folder_date = datetime.strptime(folder_name, "%Y-%m-%d")
+                        delta_days = (now - folder_date).days
+                        if delta_days > HD_RETENTION_DAYS:
+                            import shutil
+                            shutil.rmtree(folder_path)
+                            print(f"  [Auto-Purge HD] Hapus folder HD tua (> {HD_RETENTION_DAYS} hari): {folder_name}")
+                    except ValueError:
+                        pass
+        # 2. Purge Log Tua (logs/agent_YYYY-MM-DD.log)
+        log_dir = os.path.join(BASE_DIR, "logs")
+        if os.path.exists(log_dir):
+            for file_name in os.listdir(log_dir):
+                if file_name.startswith("agent_") and file_name.endswith(".log"):
+                    date_str = file_name.replace("agent_", "").replace(".log", "")
+                    try:
+                        log_date = datetime.strptime(date_str, "%Y-%m-%d")
+                        if (now - log_date).days > HD_RETENTION_DAYS:
+                            os.remove(os.path.join(log_dir, file_name))
+                            print(f"  [Auto-Purge Log] Hapus log tua (> {HD_RETENTION_DAYS} hari): {file_name}")
+                    except ValueError:
+                        pass
+    except Exception as e:
+        print(f"[Auto-Purge Error]: {e}")
+
 def capture_all_cctv_job():
     """Tugas berkala mengambil snapshot seluruh CCTV NVR sesuai config.json."""
+    purge_old_hd_snapshots()
     print("\n" + "=" * 65)
     print(f" 🚢 [TASK LOKAL] MEMPROSES SNAPSHOT {len(CAMERAS)} CCTV NVR ({NVR_IP})")
     print(f" Waktu Akses: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
