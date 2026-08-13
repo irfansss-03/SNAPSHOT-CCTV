@@ -212,39 +212,20 @@ def take_nvr_snapshot(cam_info: dict) -> dict:
     ts = int(time.time())
     source_input = os.path.join(BASE_DIR, MOCK_VIDEO) if MOCK_MODE else rtsp_url
 
-    # 1. Capture Frame HD Asli
+    # 1. Capture Frame HD Asli (Perintah Asli & Stabil dari Laptop)
     hd_cmd = [FFMPEG_CMD, "-y"]
     if MOCK_MODE:
         mock_sec = (channel_num * 5) % 25
         hd_cmd.extend(["-ss", f"00:00:{mock_sec:02d}"])
     else:
-        hd_cmd.extend([
-            "-rtsp_transport", "tcp",
-            "-analyzeduration", "10000000",   # Buffer analisis 10MB agar H.265/H.265+ terbaca sempurna
-            "-probesize", "10000000",          # Ruang probe 10MB untuk deteksi struktur paket RTSP
-            "-timeout", "5000000",
-            "-ss", "1.5"                       # Skip 1.5 detik pertama → pasti mendapat I-Frame (Anti-Grey Frame)
-        ])
+        hd_cmd.extend(["-rtsp_transport", "tcp", "-timeout", "5000000"])
 
     hd_cmd.extend(["-i", source_input, "-vframes", "1", "-q:v", "2", hd_filepath])
 
     try:
         subprocess.run(hd_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-
-        # Jika file < 25 KB → indikasi frame abu-abu/korup → retry 1x tanpa -ss
-        if os.path.exists(hd_filepath) and os.path.getsize(hd_filepath) < 25 * 1024:
-            print(f"  [WARN] Channel {channel_num}: File HD < 25 KB (kemungkinan grey frame), retry...")
-            retry_cmd = [
-                FFMPEG_CMD, "-y",
-                "-rtsp_transport", "tcp",
-                "-timeout", "5000000",
-                "-i", source_input,
-                "-vframes", "1", "-q:v", "2", hd_filepath
-            ]
-            subprocess.run(retry_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-
-        if not os.path.exists(hd_filepath) or os.path.getsize(hd_filepath) < 5 * 1024:
-            return {"success": False, "channel": channel_num, "error": "Timeout / Frame Corrupt"}
+        if not os.path.exists(hd_filepath):
+            return {"success": False, "channel": channel_num, "error": "Timeout RTSP"}
     except Exception as e:
         return {"success": False, "channel": channel_num, "error": str(e)}
 
