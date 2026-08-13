@@ -1,9 +1,9 @@
 {
   "nvr": {
-    "ip": "192.168.7.184",
+    "ip": "192.168.1.77",
     "port": 554,
     "user": "admin",
-    "pass": "ptspts2023",
+    "pass": "MasterMaharaja7",
     "brand": "hikvision"
   },
   "server": {
@@ -19,23 +19,23 @@
   "cameras": [
     {
       "channel": 1,
-      "name": "cam1",
-      "token": "9ycS912ABqUAkCcdjC9NGCSXqMk6GB8q"
-    },
-    {
-      "channel": 10,
-      "name": "cam10",
-      "token": "ZmmCq5G9RnvMRbopdTasZUaQ1dV5SR8c"
+      "name": "Camera Belakang",
+      "token": "dkKsjrnC9SVcATIyTREo4HhP48aNMGzZ"
     },
     {
       "channel": 4,
-      "name": "cam4",
-      "token": "U6lliewYaiAUyGhRRQRPekWL2T4UoJ95"
+      "name": "Camera Ruang Mesin",
+      "token": "jF0jpofGDnMr3VLpDxwdW04dW4G40R0x"
     },
     {
-      "channel": 8,
-      "name": "cam8",
-      "token": "k8whm3405IHYSe7qnCRyW0yM7OqlppXJ"
+      "channel": 5,
+      "name": "Camera Kiri",
+      "token": "pe1HSiaDEfmphsePosJ7IGeOaHc5BYGN"
+    },
+    {
+      "channel": 3,
+      "name": "Camera Kanan",
+      "token": "RbsnIxKIvKMv9IpIasY2EFR2uEcuLUBV"
     }
   ]
 }
