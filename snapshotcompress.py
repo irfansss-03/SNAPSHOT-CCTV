@@ -216,11 +216,17 @@ def take_nvr_snapshot(cam_info: dict) -> dict:
     hd_cmd = [FFMPEG_CMD, "-y"]
     if MOCK_MODE:
         mock_sec = (channel_num * 5) % 25
-        hd_cmd.extend(["-ss", f"00:00:{mock_sec:02d}"])
+        hd_cmd.extend(["-ss", f"00:00:{mock_sec:02d}", "-i", source_input, "-vframes", "1", "-q:v", "2", hd_filepath])
     else:
-        hd_cmd.extend(["-rtsp_transport", "tcp", "-timeout", "5000000"])
-
-    hd_cmd.extend(["-i", source_input, "-vframes", "1", "-q:v", "2", hd_filepath])
+        hd_cmd.extend([
+            "-rtsp_transport", "tcp",
+            "-timeout", "5000000",
+            "-i", source_input,
+            "-vf", "select=eq(pict_type\,I)",  # Filter I-Frame khusus HEVC H.265 (Anti-Grey Frame)
+            "-vframes", "1",
+            "-q:v", "2",
+            hd_filepath
+        ])
 
     try:
         subprocess.run(hd_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
