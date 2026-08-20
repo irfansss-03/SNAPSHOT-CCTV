@@ -68,15 +68,16 @@ WantedBy=multi-user.target
 EOF"
 
 $SUDO_CMD systemctl daemon-reload
-$SUDO_CMD systemctl enable cctv-snapshot
 
 echo "====================================================================="
-echo "  ✅ INSTALLASI SELESAI! SERVICE SYSTEMD SUDAH TERPASANG."
+echo "  ✅ INSTALLASI SELESAI! (Service Systemd: Disabled & Inactive)"
 echo "====================================================================="
-echo "  📌 PERINTAH PENTING UNTUK MENJALANKAN:"
+echo "  📌 LANGKAH SELANJUTNYA:"
 echo "     1. Monitor System (CPU/RAM)   : btop"
 echo "     2. Edit IP NVR & Token Kamera : nano config.json"
-echo "     3. Jalankan Service           : $SUDO_CMD systemctl start cctv-snapshot"
-echo "     4. Cek Status Service         : $SUDO_CMD systemctl status cctv-snapshot"
-echo "     5. Lihat Log Realtime         : tail -f logs/agent_\$(date +%Y-%m-%d).log"
+echo "     3. Uji Coba Manual Terlebih Dulu : python3 snapshotcompress.py"
+echo "     4. Aktifkan Auto-Start Boot   : $SUDO_CMD systemctl enable cctv-snapshot"
+echo "     5. Jalankan Service           : $SUDO_CMD systemctl start cctv-snapshot"
+echo "     6. Cek Status Service         : $SUDO_CMD systemctl status cctv-snapshot"
+echo "     7. Lihat Log Realtime         : tail -f logs/agent_\$(date +%Y-%m-%d).log"
 echo "====================================================================="
