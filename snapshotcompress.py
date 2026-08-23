@@ -111,8 +111,9 @@ MOCK_VIDEO                = CFG["agent"].get("mock_video", "cctv.kapal.mp4")
 
 CAMERAS                   = CFG["cameras"]
 
-# Saklar Koneksi Server Darat
+# Saklar Koneksi Server Darat & Lock Thread-Safe Database
 server_connected = threading.Event()
+db_lock          = threading.Lock()
 
 # Kompresi WebP (< 10.0 KB Guarantee)
 SNAPSHOT_SCALE   = '360:270'   # Resolusi piksel statik 360 x 270
@@ -129,26 +130,32 @@ def init_db():
     """Inisialisasi SQLite database dengan WAL mode untuk ketahanan daya di kapal."""
     os.makedirs(OUTPUT_HD_DIR, exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("PRAGMA journal_mode = WAL")       # Tahan mati listrik tiba-tiba
-    c.execute("PRAGMA max_page_count = 2621440") # Maksimal 10 GB limit DB
-    c.execute('''CREATE TABLE IF NOT EXISTS queue
-                 (id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                  channel_id   INTEGER,
-                  camera_token TEXT,
-                  hd_path      TEXT,
-                  webp_path    TEXT,
-                  payload      TEXT,
-                  timestamp    INTEGER,
-                  retry_count  INTEGER DEFAULT 0)''')
-    # Migrasi otomatis jika kolom camera_token belum ada di DB lama
-    c.execute("PRAGMA table_info(queue)")
-    columns = [row[1] for row in c.fetchall()]
-    if "camera_token" not in columns:
-        c.execute("ALTER TABLE queue ADD COLUMN camera_token TEXT")
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
+        c = conn.cursor()
+        c.execute("PRAGMA journal_mode = WAL")       # Tahan mati listrik tiba-tiba
+        c.execute("PRAGMA max_page_count = 2621440") # Maksimal 10 GB limit DB
+        c.execute('''CREATE TABLE IF NOT EXISTS queue
+                     (id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                      channel_id   INTEGER,
+                      camera_token TEXT,
+                      hd_path      TEXT,
+                      webp_path    TEXT,
+                      payload      TEXT,
+                      timestamp    INTEGER,
+                      retry_count  INTEGER DEFAULT 0,
+                      is_uploading INTEGER DEFAULT 0)''')
+        # Migrasi otomatis jika kolom camera_token atau is_uploading belum ada di DB lama
+        c.execute("PRAGMA table_info(queue)")
+        columns = [row[1] for row in c.fetchall()]
+        if "camera_token" not in columns:
+            c.execute("ALTER TABLE queue ADD COLUMN camera_token TEXT")
+        if "is_uploading" not in columns:
+            c.execute("ALTER TABLE queue ADD COLUMN is_uploading INTEGER DEFAULT 0")
+        # Reset is_uploading flag saat startup jika ada crash/restart sebelumnya
+        c.execute("UPDATE queue SET is_uploading = 0 WHERE is_uploading = 1")
+        conn.commit()
+        conn.close()
 
 def check_server_connection() -> bool:
     """Mengecek koneksi langsung ke SERVER DARAT."""
@@ -222,7 +229,7 @@ def take_nvr_snapshot(cam_info: dict) -> dict:
             "-rtsp_transport", "tcp",
             "-timeout", "5000000",
             "-i", source_input,
-            "-vf", "select=eq(pict_type\,I)",  # Filter I-Frame khusus HEVC H.265 (Anti-Grey Frame)
+            "-vf", r"select=eq(pict_type\,I)",  # Filter I-Frame khusus HEVC H.265 (Anti-Grey Frame)
             "-vframes", "1",
             "-q:v", "2",
             hd_filepath
@@ -328,14 +335,15 @@ def take_nvr_snapshot(cam_info: dict) -> dict:
         "resolution": "360x270",
         "level": used_level
     }
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO queue (channel_id, camera_token, hd_path, webp_path, payload, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-        (channel_num, camera_token, hd_filepath, webp_filepath, json.dumps(payload), ts)
-    )
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO queue (channel_id, camera_token, hd_path, webp_path, payload, timestamp, is_uploading) VALUES (?, ?, ?, ?, ?, ?, 0)",
+            (channel_num, camera_token, hd_filepath, webp_filepath, json.dumps(payload), ts)
+        )
+        conn.commit()
+        conn.close()
 
     return {
         "success": True,
@@ -424,60 +432,79 @@ def connection_checker_worker():
         time.sleep(CONNECTION_CHECK_INTERVAL)
 
 # =============================================================================
-# THREAD 2: UPLOADER WORKER (PER-CAMERA TOKEN ENDPOINT)
+# THREAD 2: MULTI-THREAD UPLOADER WORKERS (PER-CAMERA TOKEN ENDPOINT)
 # =============================================================================
-def upload_worker():
+def upload_worker(worker_id: int):
     """
-    Thread Pengirim Snapshot WebP ke Server Darat.
-    Endpoint URL Dinamis per Kamera:
-      POST /cctv/worker/cameras/{cameraToken}/snapshots
+    Thread Pengirim Snapshot WebP ke Server Darat (Multi-Thread Paralel).
+    Tiap worker memakai persistent requests.Session() dengan HTTP Keep-Alive connection pooling.
     """
-    worker_name = "⚡ WebPUploader"
+    worker_name = f"⚡ Uploader-{worker_id}"
+
+    # Inisialisasi HTTP Session dengan Keep-Alive Connection Pooling
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=5, pool_maxsize=5, max_retries=1)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
 
     while True:
         # ━━ 1. TUNGGU FLAG KONEKSI SERVER TRUE (HEMAT CPU & ANTI-SPAM) ━━
         server_connected.wait()
 
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
+        q_id = None
+        camera_token = None
+        webp_path = None
+        payload = None
 
-            # Ambil 1 snapshot terlama dari queue.db
-            c.execute("SELECT id, camera_token, webp_path, payload FROM queue ORDER BY timestamp ASC LIMIT 1")
-            item = c.fetchone()
+        try:
+            # Ambil 1 item terlama secara thread-safe dan tandai is_uploading = 1
+            with db_lock:
+                conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                c = conn.cursor()
+                c.execute("SELECT id, camera_token, webp_path, payload FROM queue WHERE is_uploading = 0 ORDER BY timestamp ASC LIMIT 1")
+                item = c.fetchone()
+                if item:
+                    q_id, camera_token, webp_path, payload_str = item
+                    c.execute("UPDATE queue SET is_uploading = 1 WHERE id = ?", (q_id,))
+                    conn.commit()
+                conn.close()
 
             if not item:
-                conn.close()
-                time.sleep(5)
+                time.sleep(1)
                 continue
 
-            q_id, camera_token, webp_path, payload_str = item
             payload = json.loads(payload_str)
+            cam_token = camera_token or payload.get("camera_token")
+            channel_id = payload.get("channel_id", "?")
 
             # Abaikan/hapus data antrean lama yang tidak memiliki camera_token valid
-            if not camera_token or camera_token == "None" or camera_token.startswith("token_cam"):
-                if not camera_token or camera_token == "None":
-                    print(f"[{worker_name}] Hapus antrean lama tanpa token (ID: {q_id})...")
+            if not cam_token or cam_token == "None" or str(cam_token).startswith("token_cam"):
+                print(f"[{worker_name}] Hapus antrean lama tanpa token valid (ID: {q_id})...")
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
                     c.execute("DELETE FROM queue WHERE id=?", (q_id,))
                     conn.commit()
                     conn.close()
-                    continue
+                continue
 
             if not os.path.exists(webp_path):
-                c.execute("DELETE FROM queue WHERE id=?", (q_id,))
-                conn.commit()
-                conn.close()
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM queue WHERE id=?", (q_id,))
+                    conn.commit()
+                    conn.close()
                 continue
 
             # MEMBENTUK ENDPOINT DINAMIS BERDASARKAN cameraToken
             clean_base_url = SERVER_BASE_URL.rstrip('/')
-            endpoint_url = f"{clean_base_url}/cctv/worker/cameras/{camera_token}/snapshots"
+            endpoint_url = f"{clean_base_url}/cctv/worker/cameras/{cam_token}/snapshots"
 
-            print(f"[{datetime.now()}] [{worker_name}] Uploading WebP <10KB (Queue ID: {q_id}, Ch: {payload['channel_id']})...")
-            print(f"  -> Target Endpoint: {endpoint_url}")
+            print(f"[{datetime.now()}] [{worker_name}] Uploading WebP <10KB (Queue ID: {q_id}, Ch: {channel_id})...")
 
             with open(webp_path, 'rb') as img:
-                res = requests.post(
+                res = session.post(
                     endpoint_url,
                     data={"captured_at": payload["captured_at"]},
                     files={"file": (os.path.basename(webp_path), img, "image/webp")},
@@ -488,26 +515,51 @@ def upload_worker():
                 print(f"  -> [{worker_name}] ✅ Upload Berhasil ke Server Darat (HTTP {res.status_code})!")
                 print(f"     Response: {res.text}")
                 if os.path.exists(webp_path):
-                    os.remove(webp_path)  # Hapus file WebP temporer setelah sukses diupload
-                c.execute("DELETE FROM queue WHERE id=?", (q_id,))
+                    try:
+                        os.remove(webp_path)  # Hapus file WebP temporer setelah sukses diupload
+                    except Exception:
+                        pass
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM queue WHERE id=?", (q_id,))
+                    conn.commit()
+                    conn.close()
             else:
-                # Gagal HTTP -> Matikan Flag server_connected (clear)
+                # Gagal HTTP -> Matikan Flag server_connected (clear) & reset is_uploading = 0
                 server_connected.clear()
                 print(f"  -> [{worker_name}] ❌ Upload Gagal (HTTP {res.status_code}). Response: {res.text}. Flag → False.")
-                c.execute("UPDATE queue SET retry_count = retry_count + 1 WHERE id=?", (q_id,))
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
+                    c.execute("UPDATE queue SET is_uploading = 0, retry_count = retry_count + 1 WHERE id=?", (q_id,))
+                    conn.commit()
+                    conn.close()
 
-            conn.commit()
-            conn.close()
-            time.sleep(1)
+            time.sleep(0.5)
 
-        except requests.exceptions.RequestException:
-            # Gagal Koneksi -> Matikan Flag server_connected (clear)
+        except requests.exceptions.RequestException as req_err:
+            # Gagal Koneksi -> Matikan Flag server_connected (clear) & reset is_uploading = 0
             server_connected.clear()
             print(f"[{datetime.now()}] [{worker_name}] ⚠️ Koneksi ke Server Darat Terputus! Flag → False.")
-            time.sleep(5)
+            if q_id:
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
+                    c.execute("UPDATE queue SET is_uploading = 0 WHERE id=?", (q_id,))
+                    conn.commit()
+                    conn.close()
+            time.sleep(3)
         except Exception as e:
             print(f"[{worker_name}] [ERROR] {e}")
-            time.sleep(5)
+            if q_id:
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
+                    c.execute("UPDATE queue SET is_uploading = 0 WHERE id=?", (q_id,))
+                    conn.commit()
+                    conn.close()
+            time.sleep(3)
 
 # =============================================================================
 # MAIN AGENT LOOP
@@ -536,9 +588,13 @@ def main():
     t_conn = threading.Thread(target=connection_checker_worker, daemon=True, name="ConnChecker")
     t_conn.start()
 
-    # Thread 2: WebP Uploader Worker (Kuras antrean SQLite saat Flag=True)
-    t_up = threading.Thread(target=upload_worker, daemon=True, name="WebPUploader")
-    t_up.start()
+    # Thread 2: Dynamic Multi-Thread WebP Uploader Workers (Otomatis sesuai jumlah kamera)
+    num_workers = max(1, len(CAMERAS))
+    print(f"🧵 Menjalankan {num_workers} Thread Uploader Paralel (Sesuai {len(CAMERAS)} Kamera)...")
+    for i in range(num_workers):
+        worker_id = i + 1
+        t_up = threading.Thread(target=upload_worker, args=(worker_id,), daemon=True, name=f"Uploader-{worker_id}")
+        t_up.start()
 
     print("🚀 Sistem Agent Berjalan di Background.")
     print("   -> Task Lokal : Mengambil snapshot CCTV NVR.")
