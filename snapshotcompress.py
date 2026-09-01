@@ -525,8 +525,22 @@ def upload_worker(worker_id: int):
                     c.execute("DELETE FROM queue WHERE id=?", (q_id,))
                     conn.commit()
                     conn.close()
+            elif res.status_code in [400, 401, 403, 404, 422]:
+                # Token Salah / Ditolak Server -> Hapus antrean agar tidak menyumbat antrean baru
+                print(f"  -> [{worker_name}] ⚠️ Token Ditolak Server (HTTP {res.status_code}): {res.text}. Menghapus antrean ID {q_id}...")
+                if os.path.exists(webp_path):
+                    try:
+                        os.remove(webp_path)
+                    except Exception:
+                        pass
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM queue WHERE id=?", (q_id,))
+                    conn.commit()
+                    conn.close()
             else:
-                # Gagal HTTP -> Matikan Flag server_connected (clear) & reset is_uploading = 0
+                # Gagal Server Error / 5xx -> Matikan Flag server_connected (clear) & reset is_uploading = 0
                 server_connected.clear()
                 print(f"  -> [{worker_name}] ❌ Upload Gagal (HTTP {res.status_code}). Response: {res.text}. Flag → False.")
                 with db_lock:
